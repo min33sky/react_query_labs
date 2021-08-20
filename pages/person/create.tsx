@@ -2,7 +2,7 @@ import axios, { AxiosError } from 'axios';
 import { IPerson } from 'lib/interfaces/IPerson';
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from 'react-query';
-import { getPerson } from '.';
+import { fetchPerson } from '.';
 
 interface ICreatePersonParams {
   id: string;
@@ -10,8 +10,12 @@ interface ICreatePersonParams {
   age: number;
 }
 
+/**
+ * ? useMutation Hook의 options에서 사용하는 타입
+ * - 예) Optimistic UI를 구현할 때 사용한다. (mutation하기 직전 값을 저장하는 용도)
+ */
 interface IContext {
-  id: string;
+  previousPerson?: IPerson | undefined;
 }
 
 async function createPerson({ id, name, age }: ICreatePersonParams): Promise<IPerson> {
@@ -29,15 +33,30 @@ function CreatePage() {
 
   const [enabled, setEnabled] = useState(false);
 
-  const { data: queryData } = useQuery<IPerson, AxiosError>('person', getPerson, { enabled });
+  const { data: queryData } = useQuery<IPerson, AxiosError>('person', fetchPerson, { enabled });
   const mutation = useMutation<IPerson, AxiosError, ICreatePersonParams, IContext | undefined>(
     async ({ id, name, age }) => createPerson({ id, name, age }),
     {
       // before mutation
-      onMutate: (variables: ICreatePersonParams) => {
-        console.log('mutation variables', variables);
+      onMutate: async (variables: ICreatePersonParams) => {
+        //* 진행중인 피래치를 취소한다. (Optimistic update에 덮어쓰기 방지)
+        await queryClient.cancelQueries('person');
+
+        //* 이전 값의 snapshot (rollback 대비 데이터)
+        const previousPerson: IPerson | undefined = queryClient.getQueryData('person');
+
+        const newPerson: IPerson = {
+          id: '123',
+          age: 200,
+          name: 'Tl Dddack',
+        };
+
+        //* Optimistically Update
+        queryClient.setQueryData('person', newPerson);
+
+        //* snapshot과 함께 context 객체를 리턴
         return {
-          id: '777', //? context에서 사용가능한 값(예: 원본 값을 저장할 때 사용)
+          previousPerson,
         };
       },
       // on success of mutation
@@ -46,7 +65,7 @@ function CreatePage() {
         _variables: ICreatePersonParams,
         _context: IContext | undefined
       ) => {
-        queryClient.invalidateQueries('person'); //? person 키를 무효화해서 리패치를 한다.
+        queryClient.invalidateQueries('person'); //? key가 person인 쿼리를 무효화 (stale 상태로 만든다.)
         return console.log('mutation data', data);
       },
 
@@ -57,7 +76,10 @@ function CreatePage() {
         context: IContext | undefined
       ) => {
         console.log('error: ', error.message);
-        return console.log(`rolling back optimistic update with id: ${context?.id}`);
+        queryClient.setQueryData('person', context?.previousPerson); //* snapshot으로 rollback!
+        return console.log(
+          `rolling back optimistic update with id: ${context?.previousPerson?.id}`
+        );
       },
 
       // no matter if error or success run me
