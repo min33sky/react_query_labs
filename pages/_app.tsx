@@ -2,20 +2,32 @@ import '../styles/globals.css';
 import type { AppProps } from 'next/app';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { ReactQueryDevtools } from 'react-query/devtools';
-
-const reactQueryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 1000, //? 5초 동안은 refetch 안한다.
-    },
-  },
-});
+import { useState } from 'react';
+import { Hydrate } from 'react-query/hydration';
 
 function MyApp({ Component, pageProps }: AppProps) {
+  /**
+   * ? react-query SSR 적용하기
+   * [참고](https://react-query.tanstack.com/guides/ssr)
+   */
+
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 20 * 1000, //? 20초 동안은 refetch 안함.
+          },
+        },
+      })
+  );
+
   return (
-    <QueryClientProvider client={reactQueryClient}>
-      <Component {...pageProps} />
-      <ReactQueryDevtools initialIsOpen={false} />
+    <QueryClientProvider client={queryClient}>
+      <Hydrate state={pageProps.dehydratedState}>
+        <Component {...pageProps} />
+        <ReactQueryDevtools initialIsOpen={false} />
+      </Hydrate>
     </QueryClientProvider>
   );
 }
